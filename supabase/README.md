@@ -1,28 +1,52 @@
 # Supabase cho Mathiz
 
-Thư mục này mới chỉ chuẩn bị schema PostgreSQL ban đầu. Chưa có Supabase project, Storage bucket, kết nối ứng dụng hoặc dữ liệu thật nào được tạo.
+## Migration
 
-## Nội dung migration
+- `0001_initial_schema.sql`: schema family/parent ban đầu, đã được áp dụng trước khi yêu cầu nghiệp vụ thay đổi.
+- `0002_user_roles.sql`: migration chuyển tiếp có chủ đích xóa schema cũ và tạo mô hình admin/student. Migration này làm mất dữ liệu trong các bảng ứng dụng cũ; dự án đã xác nhận các bảng chưa có dữ liệu.
+- `0003_api_only_exam_access.sql`: buộc dữ liệu đề/lượt thi đi qua API server; client đăng nhập chỉ còn quyền đọc profile.
 
-`migrations/0001_initial_schema.sql` tạo các bảng gia đình, hồ sơ phụ huynh, hồ sơ bé, đề thi có version, câu hỏi, asset, lượt làm bài và câu trả lời. Migration cũng thêm khóa ngoại, constraint, index, trigger `updated_at` và Row Level Security (RLS).
+Chạy `0002_user_roles.sql`, sau đó `0003_api_only_exam_access.sql` trên Supabase sau khi đọc và kiểm tra ở môi trường thử nghiệm. Ứng dụng không tự chạy migration.
 
-Policy hiện tại chỉ phục vụ phụ huynh đã đăng nhập bằng Supabase Auth. Trẻ chưa có Auth user và không được truy cập trực tiếp bằng anon key. Cơ chế child session/PIN sẽ được thiết kế trong giai đoạn sau.
+## Mô hình quyền
 
-## Chuẩn bị Supabase sau này
+- Mỗi Supabase Auth user có một hàng trong `public.profiles`.
+- Trigger `on_auth_user_created` tự tạo profile role `student` khi Auth user được tạo.
+- Đăng ký công khai không thể chọn role.
+- Admin xem và quản lý toàn bộ profile, đề thi, nội dung đề và lượt làm bài.
+- Học sinh chỉ xem đề `published`, tạo nhiều lượt làm bài và truy cập lượt làm bài của chính mình.
+- Trigger bảo vệ không cho học sinh tự ghi các trường chấm điểm.
+- Role `anon` không có quyền trên các bảng ứng dụng.
 
-1. Tạo một Supabase project trong dashboard khi dự án bước sang giai đoạn tích hợp.
-2. Sao chép `.env.example` thành `.env.local` và điền URL cùng publishable key của project.
-3. Chỉ đặt `SUPABASE_SERVICE_ROLE_KEY` ở môi trường server đáng tin cậy nếu thực sự cần. Không bao giờ đưa khóa này vào trình duyệt hoặc commit secret thật.
-4. Áp dụng `0001_initial_schema.sql` bằng một trong hai cách:
-   - Dán và chạy migration trong SQL Editor của Supabase Dashboard.
-   - Cài Supabase CLI theo tài liệu chính thức, liên kết project rồi chạy quy trình migration phù hợp.
+Để nâng một Auth user thành admin, chạy bằng SQL Editor với UUID chính xác:
 
-Repository không giả định Supabase CLI hoặc Docker đã được cài. Hãy đọc và rà soát migration trước khi chạy trên môi trường có dữ liệu.
+```sql
+update public.profiles
+set role = 'admin', grade = null
+where user_id = 'AUTH_USER_UUID';
+```
 
-## Mô hình quyền hiện tại
+Không cho phép client tự chọn hoặc cập nhật role.
 
-- Người tạo family có thể tạo hồ sơ phụ huynh của chính mình và quản lý family đó.
-- Phụ huynh chỉ truy cập dữ liệu thuộc family của mình.
-- `parent_profiles.user_id` phải là `auth.uid()` khi tự tạo hoặc sửa hồ sơ.
-- Không có policy cho role `anon` và quyền bảng của `anon` bị thu hồi rõ ràng.
-- Helper RLS đặt trong schema `private`, dùng `SECURITY DEFINER`, khóa `search_path` và chỉ cấp quyền thực thi cho `authenticated` để tránh policy đệ quy.
+Hãy tạo tài khoản admin qua API đăng ký như một học sinh bình thường trước, sau đó chạy câu lệnh trên để nâng role. Không tạo trực tiếp trong Authentication Dashboard vì trigger yêu cầu metadata `phone_number` hợp lệ.
+
+## Cấu hình Auth không dùng SMS
+
+Trong Supabase Dashboard:
+
+1. Để Phone provider ở trạng thái tắt; không cần nhà cung cấp SMS.
+2. Bật Email provider và cho phép đăng ký user mới.
+3. Tắt `Confirm email`, vì email chỉ là định danh nội bộ do server tạo ra và không có hộp thư thật.
+4. Tạo `AUTH_IDENTIFIER_SECRET` ngẫu nhiên, tối thiểu 32 ký tự, trong `.env.local` và môi trường production.
+
+Có thể tạo secret 32 byte bằng Node.js:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Không thay đổi hoặc làm mất secret sau khi đã có user. Server ánh xạ cùng một số điện thoại thành cùng một email Auth bằng HMAC-SHA256; đổi secret sẽ khiến tài khoản cũ không đăng nhập được.
+
+Số điện thoại thật được lưu duy nhất trong `public.profiles.phone_number` theo E.164, ví dụ `+84901234567`. Email nội bộ không được trả về API.
+
+Vì email không có hộp thư thật và không dùng SMS, học sinh không thể tự khôi phục mật khẩu. Cần bổ sung luồng admin đặt lại mật khẩu khi tính năng đó được yêu cầu.

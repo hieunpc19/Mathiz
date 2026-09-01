@@ -1,11 +1,9 @@
-import { AppShell } from "@/components/app-shell";
+import type { ReactNode } from "react";
 
-const navigationItems = [{ href: "/", label: "Trang chủ" }] as const;
-
-export default function AuthLayout({ children }: LayoutProps<"/">) {
+export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
-    <AppShell area="Truy cập" navigationItems={navigationItems}>
+    <div className="min-h-screen bg-slate-100 flex flex-col justify-center">
       {children}
-    </AppShell>
+    </div>
   );
 }
