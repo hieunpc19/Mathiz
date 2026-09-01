@@ -44,3 +44,6 @@ next-env.d.ts
 /data/*
 !/data/timo-preliminary-2020-2021-set-01.zip
 /.agents
+/dist/
+.vinext/
+.wrangler/
