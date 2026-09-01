@@ -1,158 +1,120 @@
 # Mathiz
 
-Mathiz là nền tảng luyện thi Toán dành cho học sinh lớp 1–2, phục vụ một gia đình nhỏ. Mục tiêu dài hạn là giúp phụ huynh chuẩn hóa, xem trước và xuất bản đề; giúp bé làm bài trên iPad hoặc laptop; và lưu lại điểm, thời gian cùng lịch sử từng câu.
-
-Repository hiện tại chỉ là **codebase nền tảng**, chưa phải MVP.
-
-## Phạm vi đã triển khai
-
-- Next.js App Router với TypeScript strict, cấu trúc `src/` và alias `@/*`.
-- Route groups cho khu vực truy cập, học sinh và phụ huynh.
-- Placeholder responsive bằng tiếng Việt để kiểm tra thủ công các route.
-- Health endpoint trả JSON.
-- Tailwind CSS, ESLint và Prettier.
-- Supabase PostgreSQL migration ban đầu gồm schema, constraint, index, trigger và RLS dành cho phụ huynh.
-- Mẫu biến môi trường không chứa secret.
-
-Chưa triển khai đăng nhập, kết nối Supabase, import/parse Markdown hoặc LaTeX, upload, OCR/AI, chấm điểm, đồng hồ, autosave, bảo vệ route, child session/PIN, test framework hay deploy Vercel.
+Mathiz là nền tảng luyện thi Toán dùng Next.js App Router và Supabase. Mô hình hiện tại có hai loại tài khoản: admin tạo và quản lý đề; học sinh làm đề và xem dữ liệu của mình. Chưa có role phụ huynh.
 
 ## Tech stack
 
-- Next.js 16.3.3 (App Router)
-- React 19.2.8
-- TypeScript 5, strict mode
+- Next.js 16.3.3, React 19, TypeScript strict
 - Tailwind CSS 4
-- ESLint 9 với `eslint-config-next`
-- Prettier 3
-- npm và `package-lock.json`
-- PostgreSQL tương thích Supabase (chưa kết nối)
+- Supabase Auth, PostgreSQL và Row Level Security
+- Node.js 24 LTS, npm
 
-## Yêu cầu môi trường
-
-- Node.js 24 LTS (`.nvmrc`; `package.json` giới hạn `>=24 <25`)
-- npm đi kèm Node.js
-
-Không bắt buộc cài Supabase CLI hoặc Docker trong giai đoạn này.
-
-## Cài đặt và chạy
+## Chạy dự án
 
 ```bash
 npm install
 npm run dev
 ```
 
-Mở `http://localhost:3000`. Không cần biến môi trường để xem các placeholder hiện tại.
+Tạo `.env` từ `.env.example` và điền:
 
-## Các lệnh npm
-
-| Lệnh                   | Mục đích                                      |
-| ---------------------- | --------------------------------------------- |
-| `npm run dev`          | Chạy development server                       |
-| `npm run build`        | Tạo production build                          |
-| `npm run start`        | Chạy production server sau khi build          |
-| `npm run lint`         | Kiểm tra toàn bộ repository bằng ESLint       |
-| `npm run typecheck`    | Kiểm tra TypeScript mà không phát sinh output |
-| `npm run format`       | Định dạng file bằng Prettier                  |
-| `npm run format:check` | Xác minh định dạng Prettier                   |
-
-## Cấu trúc thư mục
-
-```text
-Mathiz/
-├── src/
-│   ├── app/
-│   │   ├── (auth)/
-│   │   ├── (student)/student/
-│   │   ├── (parent)/parent/
-│   │   ├── api/health/
-│   │   ├── layout.tsx
-│   │   ├── not-found.tsx
-│   │   └── page.tsx
-│   └── components/
-│       ├── app-shell.tsx
-│       ├── navigation.tsx
-│       └── route-placeholder.tsx
-├── supabase/
-│   ├── migrations/0001_initial_schema.sql
-│   └── README.md
-├── .env.example
-├── .nvmrc
-└── package.json
+```dotenv
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
+AUTH_IDENTIFIER_SECRET=RANDOM_SECRET_AT_LEAST_32_CHARACTERS
 ```
 
-## Route
+API xác thực không sử dụng service-role key. Session được lưu trong cookie `HttpOnly`, `SameSite=Lax`, và chỉ dùng cookie `Secure` trên production.
 
-| URL                              | Mục đích dự kiến                               |
-| -------------------------------- | ---------------------------------------------- |
-| `/`                              | Giới thiệu nền tảng và liên kết kiểm tra route |
-| `/login`                         | Đăng nhập phụ huynh bằng Supabase Auth         |
-| `/select-profile`                | Chọn khu vực hoặc hồ sơ bé                     |
-| `/student/exams`                 | Danh sách đề dành cho bé                       |
-| `/student/exams/[examId]`        | Thông tin một đề                               |
-| `/student/attempts/[attemptId]`  | Màn hình làm bài                               |
-| `/student/results/[attemptId]`   | Kết quả một lượt làm bài                       |
-| `/parent/dashboard`              | Tổng quan hoạt động gia đình                   |
-| `/parent/exams`                  | Quản lý đề thi                                 |
-| `/parent/exams/import`           | Import nguồn đề đã chuẩn hóa                   |
-| `/parent/exams/[examId]/preview` | Xem trước một đề trước khi xuất bản            |
-| `/parent/children`               | Quản lý hồ sơ các bé                           |
-| `GET /api/health`                | Trả `{"status":"ok","service":"mathiz"}`       |
+API nhận số điện thoại nhưng không bật Supabase Phone Auth. Server dùng HMAC-SHA256 cùng `AUTH_IDENTIFIER_SECRET` để tạo một email nội bộ ổn định rồi xác thực qua Email Auth. Email nội bộ không được trả về client. Không thay đổi secret sau khi đã có user, vì việc đó sẽ thay đổi toàn bộ định danh đăng nhập.
 
-Các URL động có thể được kiểm tra bằng giá trị bất kỳ, ví dụ `/student/exams/demo`. Chúng chỉ hiển thị placeholder và không truy vấn dữ liệu.
+Luồng này không thể tự khôi phục mật khẩu qua SMS hoặc email. Khi cần, admin phải đặt lại mật khẩu cho học sinh bằng một luồng quản trị riêng.
 
-## Tổng quan database
+## API xác thực
 
-Migration `supabase/migrations/0001_initial_schema.sql` tạo chín bảng:
+### `POST /api/auth/register`
 
-- `families`, `parent_profiles`, `children`
-- `exams`, `exam_versions`, `questions`, `assets`
-- `attempts`, `attempt_answers`
+Đăng ký công khai luôn tạo học sinh:
 
-Schema dùng UUID, khóa ngoại và hành vi xóa rõ ràng; unique/check constraint; index cho khóa ngoại và truy vấn chính; trigger cập nhật `updated_at`; cùng quan hệ version hiện tại của đề. Không có seed data hoặc nội dung đề có bản quyền.
+```json
+{
+  "phone_number": "+84901234567",
+  "password": "mat-khau-toi-thieu-8-ky-tu",
+  "displayName": "Nguyễn An",
+  "grade": 2
+}
+```
 
-RLS được bật trên mọi bảng public. Policy hiện chỉ cho phụ huynh đã xác thực truy cập dữ liệu thuộc family của họ. Helper trong schema `private` tránh policy đệ quy và khóa `search_path`. Role `anon` không có policy và bị thu hồi quyền bảng.
+Điều kiện:
 
-## Biến môi trường
+- `phone_number`: định dạng quốc tế E.164.
+- `password`: từ 8 đến 72 ký tự.
+- `displayName`: từ 1 đến 120 ký tự.
+- `grade`: số nguyên từ 1 đến 12.
 
-Sao chép file mẫu khi bắt đầu tích hợp Supabase:
+Phản hồi thành công trả HTTP `201`, thông tin user không chứa token và `sessionEstablished: true` khi Supabase đã tắt `Confirm email`.
+
+### `POST /api/auth/login`
+
+```json
+{
+  "phone_number": "+84901234567",
+  "password": "mat-khau-toi-thieu-8-ky-tu"
+}
+```
+
+Phản hồi thành công trả HTTP `200`, profile và `sessionEstablished: true`. Sai thông tin đăng nhập trả `401`; lỗi validation trả `422`.
+
+## Database
+
+Migration `supabase/migrations/0002_user_roles.sql` thay mô hình family/parent/child bằng:
+
+- `profiles`: profile của Auth user với role `admin` hoặc `student`.
+- `exams`, `exam_versions`, `questions`, `assets`: nội dung do admin quản lý.
+- `attempts`, `attempt_answers`: lượt làm bài gắn trực tiếp với Auth user học sinh.
+
+Migration bật RLS cho mọi bảng. Admin có quyền toàn cục; học sinh chỉ xem đề đã xuất bản và dữ liệu làm bài của chính mình. Xem hướng dẫn áp dụng migration và tạo admin tại `supabase/README.md`.
+
+## Import và thi bằng dữ liệu thật
+
+Các gói nguồn chuẩn được đặt trong `data/`. Lệnh sau import gói mặc định thành một bản nháp mới với lớp 1–5 và 90 phút:
 
 ```bash
-cp .env.example .env.local
+npm run import:exam
 ```
 
-Trên PowerShell có thể dùng:
+Admin đã đăng nhập có thể import qua API và tùy chỉnh thời gian/khối lớp:
 
-```powershell
-Copy-Item .env.example .env.local
+```http
+POST /api/admin/exams/import
+Content-Type: application/json
+
+{
+  "packageFile": "timo-preliminary-2020-2021-set-01.zip",
+  "durationMinutes": 90,
+  "gradeMin": 1,
+  "gradeMax": 5
+}
 ```
 
-| Biến                                   | Phạm vi                                                  |
-| -------------------------------------- | -------------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL`             | Public; URL của Supabase project                         |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Public; có thể xuất hiện trong trình duyệt               |
-| `SUPABASE_SERVICE_ROLE_KEY`            | Chỉ server; có thể bỏ qua RLS và phải bảo vệ nghiêm ngặt |
+`GET /api/admin/exams/import` trả danh sách ZIP hợp lệ trong `data/`. Mỗi lần import luôn tạo một `exam_version` nháp mới, kể cả khi cùng gói đã được import trước đó. Importer kiểm tra manifest, số câu, lựa chọn và toàn bộ ảnh trước khi ghi. Ảnh nằm trong private Storage bucket `exam-assets`; đáp án được mã hóa trong database.
 
-Mọi biến `NEXT_PUBLIC_*` có thể xuất hiện trong mã gửi tới trình duyệt. Không bao giờ dùng service-role key ở frontend và không commit secret thật. `.env.local` đã được Git ignore.
+Admin chỉnh metadata, câu hỏi, lựa chọn, đáp án, điểm, lời giải, thứ tự và ảnh tại `/admin/exams/:examId/versions/:versionId`. Một đề có thể giữ nhiều draft song song. Phiên bản đã xuất bản là bất biến; muốn sửa phải clone thành draft mới. API publish kiểm tra thời gian, khối lớp, nội dung câu, điểm, đáp án và asset trước khi chuyển `current_version_id`.
 
-## Chuẩn bị Supabase sau này
+Luồng API học sinh:
 
-Khi sẵn sàng tích hợp, tạo project trên Supabase Dashboard, điền các biến môi trường, rồi áp dụng migration bằng SQL Editor hoặc Supabase CLI. Không có project hoặc tài nguyên bên ngoài nào được tạo trong lần khởi tạo này. Xem hướng dẫn chi tiết tại `supabase/README.md`.
+- `GET /api/exams` và `GET /api/exams/:examId`: danh sách/thông tin đề.
+- `POST /api/exams/:examId/attempts`: tạo lượt thi và deadline phía server.
+- `GET /api/attempts/:attemptId`: tải đề, không trả đáp án chuẩn.
+- `PUT /api/attempts/:attemptId/answers`: lưu hoặc xóa một đáp án.
+- `POST /api/attempts/:attemptId/submit`: khóa bài và chấm trên server.
+- `GET /api/attempts/:attemptId/result`: trả điểm và đáp án sau khi nộp.
 
-## Nguyên tắc bảo mật
+## Kiểm tra chất lượng
 
-- Xem RLS là lớp bảo vệ dữ liệu bắt buộc, không chỉ dựa vào UI hoặc middleware.
-- Chỉ dùng publishable key ở client; service-role key chỉ ở server đáng tin cậy.
-- Không lưu PIN dạng plaintext; cột `pin_hash` chỉ dành cho hash do server tạo sau này.
-- Kiểm tra family ownership ở mọi luồng ghi dữ liệu.
-- Rà soát policy và migration trên môi trường thử nghiệm trước khi áp dụng production.
-- Xác định provenance và quyền sử dụng trước khi lưu nội dung đề hoặc asset.
-
-## Roadmap gợi ý
-
-1. Tạo Supabase project thử nghiệm và tích hợp Auth cho phụ huynh.
-2. Hoàn thiện onboarding family, parent profile và hồ sơ bé.
-3. Xây pipeline import, validate, preview và version hóa đề.
-4. Thiết kế child session/PIN an toàn trước khi mở quyền cho học sinh.
-5. Xây exam runner, autosave, deadline và quy tắc nộp bài.
-6. Thêm chấm điểm, lịch sử kết quả và test tự động.
-7. Rà soát bảo mật, khả năng truy cập và triển khai Vercel.
+```bash
+npm run lint
+npm run typecheck
+npm run build
+npm run import:exam
+```
