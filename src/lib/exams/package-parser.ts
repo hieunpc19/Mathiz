@@ -28,7 +28,34 @@ export type ParsedExamPackage = {
   sourceHash: string;
   rawMarkdown: string;
   questions: ParsedQuestion[];
-  assets: Array<{ name: string; data: Buffer; mimeType: string; sha256: string }>;
+  assets: Array<{
+    name: string;
+    data: Buffer;
+    mimeType: string;
+    sha256: string;
+  }>;
+};
+
+type ExamPackageManifest = {
+  schemaVersion?: string;
+  packageId?: string;
+  id?: string;
+  title?: string;
+  competition?: string;
+  round?: string;
+  schoolYear?: string;
+  languages?: string[];
+  rightsNote?: string;
+  entry?: string;
+  assetDirectory?: string;
+  files?: {
+    exam?: string;
+    assets?: string;
+  };
+  source?: {
+    fileName?: string;
+    filename?: string;
+  };
 };
 
 function scalar(frontmatter: string, key: string) {
@@ -60,7 +87,8 @@ function assetReferences(markdown: string) {
 
 function parseQuestions(markdown: string): ParsedQuestion[] {
   const questions: ParsedQuestion[] = [];
-  const matcher = /:::question\{([^}]+)\}\s*([\s\S]*?)\s*:::choices\s*([\s\S]*?)\s*:::\s*:::/g;
+  const matcher =
+    /:::question\{([^}]+)\}\s*([\s\S]*?)\s*:::choices\s*([\s\S]*?)\s*:::\s*:::/g;
 
   for (const match of markdown.matchAll(matcher)) {
     const attributes = match[1];
@@ -106,28 +134,33 @@ function mimeType(name: string) {
   return "application/octet-stream";
 }
 
+function normalizedPackagePath(value: string) {
+  return value.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
 export function parseExamPackage(zipPath: string): ParsedExamPackage {
   const archiveData = new AdmZip(zipPath).toBuffer();
   const zip = new AdmZip(archiveData);
   const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
-  const manifestEntry = entries.find((entry) => entry.entryName.endsWith("/manifest.json"));
+  const manifestEntry = entries.find((entry) =>
+    entry.entryName.endsWith("/manifest.json"),
+  );
 
   if (!manifestEntry) throw new Error("ZIP không có manifest.json.");
-  const manifest = JSON.parse(manifestEntry.getData().toString("utf8")) as {
-    schemaVersion?: string;
-    packageId?: string;
-    entry?: string;
-    assetDirectory?: string;
-    source?: { fileName?: string };
-  };
+  const manifest = JSON.parse(
+    manifestEntry.getData().toString("utf8"),
+  ) as ExamPackageManifest;
+  const packageId = manifest.packageId ?? manifest.id;
+  const entry = manifest.entry ?? manifest.files?.exam;
 
-  if (manifest.schemaVersion !== "1.0" || !manifest.packageId || !manifest.entry) {
+  if (manifest.schemaVersion !== "1.0" || !packageId || !entry) {
     throw new Error("Manifest không hợp lệ hoặc schema chưa được hỗ trợ.");
   }
 
   const root = manifestEntry.entryName.slice(0, -"manifest.json".length);
-  const markdownEntry = zip.getEntry(`${root}${manifest.entry}`);
-  if (!markdownEntry) throw new Error(`Không tìm thấy ${manifest.entry}.`);
+  const normalizedEntry = normalizedPackagePath(entry);
+  const markdownEntry = zip.getEntry(`${root}${normalizedEntry}`);
+  if (!markdownEntry) throw new Error(`Không tìm thấy ${entry}.`);
 
   const rawMarkdown = markdownEntry.getData().toString("utf8");
   const frontmatterMatch = rawMarkdown.match(/^---\s*\n([\s\S]*?)\n---/);
@@ -137,11 +170,18 @@ export function parseExamPackage(zipPath: string): ParsedExamPackage {
   const expectedCount = Number(scalar(frontmatter, "question_count"));
 
   if (!questions.length || questions.length !== expectedCount) {
-    throw new Error(`Số câu parse được (${questions.length}) khác khai báo (${expectedCount}).`);
+    throw new Error(
+      `Số câu parse được (${questions.length}) khác khai báo (${expectedCount}).`,
+    );
   }
 
-  const declaredAssets = new Set(questions.flatMap((question) => question.assetNames));
-  const assetRoot = `${root}${manifest.assetDirectory ?? "assets"}/`;
+  const declaredAssets = new Set(
+    questions.flatMap((question) => question.assetNames),
+  );
+  const assetDirectory = normalizedPackagePath(
+    manifest.assetDirectory ?? manifest.files?.assets ?? "assets",
+  ).replace(/\/+$/, "");
+  const assetRoot = `${root}${assetDirectory}/`;
   const assets = entries
     .filter((entry) => entry.entryName.startsWith(assetRoot))
     .map((entry) => {
@@ -160,18 +200,28 @@ export function parseExamPackage(zipPath: string): ParsedExamPackage {
     if (!availableAssets.has(name)) throw new Error(`Thiếu asset: ${name}.`);
   }
 
-  const maxScore = questions.reduce((sum, question) => sum + question.points, 0);
+  const maxScore = questions.reduce(
+    (sum, question) => sum + question.points,
+    0,
+  );
+  const frontmatterLanguages = stringArray(frontmatter, "languages");
   return {
-    packageId: manifest.packageId,
-    title: scalar(frontmatter, "title") ?? manifest.packageId,
-    competition: scalar(frontmatter, "competition") ?? "TIMO",
-    round: scalar(frontmatter, "round"),
-    schoolYear: scalar(frontmatter, "school_year"),
-    languages: stringArray(frontmatter, "languages"),
-    rightsNote: scalar(frontmatter, "rights_note"),
+    packageId,
+    title: scalar(frontmatter, "title") ?? manifest.title ?? packageId,
+    competition:
+      scalar(frontmatter, "competition") ?? manifest.competition ?? "TIMO",
+    round: scalar(frontmatter, "round") ?? manifest.round ?? null,
+    schoolYear:
+      scalar(frontmatter, "school_year") ?? manifest.schoolYear ?? null,
+    languages: frontmatterLanguages.length
+      ? frontmatterLanguages
+      : (manifest.languages ?? []),
+    rightsNote:
+      scalar(frontmatter, "rights_note") ?? manifest.rightsNote ?? null,
     questionCount: questions.length,
     maxScore,
-    sourceFileName: manifest.source?.fileName ?? null,
+    sourceFileName:
+      manifest.source?.fileName ?? manifest.source?.filename ?? null,
     sourceHash: createHash("sha256").update(archiveData).digest("hex"),
     rawMarkdown,
     questions,
